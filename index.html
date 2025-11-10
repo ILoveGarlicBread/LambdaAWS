@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<!--
+Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
+Click nbfs://nbhost/SystemFileSystem/Templates/JSP_Servlet/Html.html to edit this template
+-->
+<html>
+    <head>
+        <title>Bucket List</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            table, th, td {
+                border: 1px solid;
+            }
+        </style>
+
+    </head>
+    <body>
+
+        <div><h1>Bucket List</h1></div>
+        <div>
+            <table id="objectsTable">
+            </table>
+        </div>
+        <div>
+            <img src="" id="download_image">
+        </div>
+        <script>
+            //getObjectList();
+            fetchListOfObjects();
+
+
+            function renderListOfObjects(listOfObjects) {
+                let objectsTable = document.getElementById("objectsTable");
+                while (objectsTable.firstChild) {
+                    objectsTable.removeChild(objectsTable.lastChild);
+                }
+                let objectsArray = JSON.parse(listOfObjects);
+
+                for (let i = 0; i < objectsArray.length; i = i + 1) {
+                    let row = document.createElement("tr");
+                    let keyCell = document.createElement("td");
+                    keyCell.innerHTML = objectsArray[i].key;
+                    /* */
+                    let downloadCell = document.createElement("td");
+                    let downloadButton = document.createElement("button");
+                    downloadButton.addEventListener("click", function () {
+                        //downloadObject(objectsArray[i].key);
+                        fetchObject(objectsArray[i].key)
+                    });
+                    downloadButton.innerHTML = "Download";
+                    downloadCell.appendChild(downloadButton);
+                    /* */
+                    let deleteCell = document.createElement("td");
+                    let deleteButton = document.createElement("button");
+                    deleteButton.addEventListener("click", function () {
+                        deleteObject(objectsArray[i].key);
+                    });
+                    deleteButton.innerHTML = "Delete";
+                    deleteCell.appendChild(deleteButton);
+                    /* */
+                    row.appendChild(keyCell);
+                    row.appendChild(downloadCell);
+                    row.appendChild(deleteCell);
+                    objectsTable.appendChild(row);
+                }
+
+            }
+
+            function fetchListOfObjects() {
+                let url = "https://xjok7sqel75h3hshg7doevb4xq0fqlwe.lambda-url.ap-southeast-2.on.aws/";
+                fetch(url)
+                        .then((response) => {
+                            if (!response.ok) {
+                                throw new Error(`HTTP error, status = ${response.status}`);
+                            }
+                            return response.text();
+                        })
+                        .then((text) => {
+                            renderListOfObjects(text);
+                        })
+                        .catch((error) => {
+                            console.log(`Error: ${error.message}`);
+                        });
+
+            }
+
+
+            function fetchObject(key) {
+                const body = {
+                    "key": key
+                };
+                /*       
+                 let url = "https://c2by4ajeblmkwtz364qoludmnu0bgoge.lambda-url.ap-southeast-1.on.aws/?key=" + key;
+                 */
+                let url = "https://7jrbw2fn3ucpwdnfqh32kgdbgy0upgsk.lambda-url.ap-southeast-2.on.aws/";
+
+                fetch(url,
+                        {
+                            method: 'PUT',
+                            body: JSON.stringify(body)
+                        }
+                        )
+                        .then(response => response.blob())
+                        .then((myBlob) => {
+                            const objectURL = URL.createObjectURL(myBlob);
+                            const img_S3 = document.getElementById("download_image");
+                            img_S3.src = objectURL;
+                        });
+            }
+
+            /* GET BUCKET OBJECT LIST */
+            function getObjectList() {
+                let objectsTable = document.getElementById("objectsTable");
+                while (objectsTable.firstChild) {
+                    objectsTable.removeChild(objectsTable.lastChild);
+                }
+                const xhr = new XMLHttpRequest();
+                xhr.onreadystatechange = () => {
+                    if (xhr.readyState === 4) {
+                        if (xhr.status === 200) {
+                            let objectsArray = JSON.parse(xhr.responseText);
+
+                            for (let i = 0; i < objectsArray.length; i = i + 1) {
+                                let row = document.createElement("tr");
+                                let keyCell = document.createElement("td");
+                                keyCell.innerHTML = objectsArray[i].key;
+                                /* */
+                                let downloadCell = document.createElement("td");
+                                let downloadButton = document.createElement("button");
+                                downloadButton.addEventListener("click", function () {
+                                    //downloadObject(objectsArray[i].key);
+                                    fetchObject(objectsArray[i].key)
+                                });
+                                downloadButton.innerHTML = "Download";
+                                downloadCell.appendChild(downloadButton);
+                                /* */
+                                let deleteCell = document.createElement("td");
+                                let deleteButton = document.createElement("button");
+                                deleteButton.addEventListener("click", function () {
+                                    deleteObject(objectsArray[i].key);
+                                });
+                                deleteButton.innerHTML = "Delete";
+                                deleteCell.appendChild(deleteButton);
+                                /* */
+                                row.appendChild(keyCell);
+                                row.appendChild(downloadCell);
+                                row.appendChild(deleteCell);
+                                objectsTable.appendChild(row);
+                            }
+
+                        } else {
+                            console.log(xhr.responseText);
+                        }
+                    }
+                };
+                xhr.open("GET", "https://xjok7sqel75h3hshg7doevb4xq0fqlwe.lambda-url.ap-southeast-2.on.aws/");
+                xhr.send(null);
+
+            }
+
+
+            /* DOWNLOAD OBJECT */
+            function downloadObject(key) {
+                const xhr = new XMLHttpRequest();
+                xhr.onload = function () {
+                    let reader = new FileReader();
+                    reader.onloadend = function () {
+                        if (xhr.status === 200) {
+                            var outputImg = document.getElementById('download_image');
+                            outputImg.src = reader.result;
+                        } else {
+                            console.log(xhr.status + " : " + xhr.responseText);
+                        }
+                    };
+                    reader.readAsDataURL(xhr.response);
+                };
+                xhr.open("PUT", "https://7jrbw2fn3ucpwdnfqh32kgdbgy0upgsk.lambda-url.ap-southeast-2.on.aws/");
+                const body1 = JSON.stringify({
+                    "key": key
+                });
+                xhr.responseType = 'blob';
+                xhr.send(body1);
+            }
+
+            function deleteObject(key) {
+                const url = "https://ntek3tbvsgoit5nfoc3ontlpdu0bgkeo.lambda-url.ap-southeast-2.on.aws/";
+
+                const body = {
+                    "key": key
+                };
+
+                fetch(url, {
+                    method: 'DELETE', 
+                    body: JSON.stringify(body),
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error, status = ${response.status}`);
+                    }
+                    // You might want to check the response from your Lambda
+                    // For example, return response.json() or response.text()
+                    console.log('Delete request successful'); 
+                })
+                .then(data => {
+                    // After a successful delete, refresh the list of objects
+                    // This will re-run the query and re-render the table
+                    // without the item that was just deleted.
+                    fetchListOfObjects();
+                })
+                .catch(error => {
+                    console.error('Error deleting object:', error.message);
+                    alert('Failed to delete the object.'); // Inform the user
+                });
+            }
+
+
+        </script>
+    </body>
+
+</html>
+
