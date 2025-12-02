@@ -27,13 +27,12 @@ public class LambdaEntryPoint
 
   public String callLambda(String functionName, String payload, LambdaLogger logger) {
     String message;
-    InvokeRequest invokeRequest =
-        InvokeRequest.builder()
-            .functionName(functionName)
-            // .invocationType("Event") // Asynchronous invocation
-            .payload(SdkBytes.fromUtf8String(payload))
-            .invocationType("RequestResponse")
-            .build();
+    InvokeRequest invokeRequest = InvokeRequest.builder()
+        .functionName(functionName)
+        // .invocationType("Event") // Asynchronous invocation
+        .payload(SdkBytes.fromUtf8String(payload))
+        .invocationType("RequestResponse")
+        .build();
 
     try {
       InvokeResponse invokeResult = lambdaClient.invoke(invokeRequest);

@@ -16,6 +16,11 @@ Click nbfs://nbhost/SystemFileSystem/Templates/JSP_Servlet/Html.html to edit thi
 
     </head>
     <body>
+        <div>
+            <label for="file_input">file: </label>
+            <input type="file" id="file_input" >
+            <button id="upload_button" onclick="uploadObject()">Upload</button>
+        </div>
 
         <div><h1>Bucket List</h1></div>
         <div>
@@ -201,20 +206,49 @@ Click nbfs://nbhost/SystemFileSystem/Templates/JSP_Servlet/Html.html to edit thi
                     if (!response.ok) {
                         throw new Error(`HTTP error, status = ${response.status}`);
                     }
-                    // You might want to check the response from your Lambda
-                    // For example, return response.json() or response.text()
                     console.log('Delete request successful'); 
                 })
                 .then(data => {
-                    // After a successful delete, refresh the list of objects
-                    // This will re-run the query and re-render the table
-                    // without the item that was just deleted.
                     fetchListOfObjects();
                 })
                 .catch(error => {
                     console.error('Error deleting object:', error.message);
-                    alert('Failed to delete the object.'); // Inform the user
+                    alert('Failed to delete the object.'); 
                 });
+            }
+             function putObject(json) {
+             let url = "https://4wzgu4vdsol73gmezefqyeeucq0dmhnj.lambda-url.ap-southeast-2.on.aws/";
+             fetch(url, {
+                     method: 'POST',
+                     body: JSON.stringify(json)
+                })
+                .then((resp) => resp.text())
+                .then(function(response) {
+                    fetchListOfObjects();
+                    console.info('fetch()', response);
+            });
+        };
+            ;
+            function uploadObject() {
+                let file_input = document.getElementById("file_input");
+                let file = file_input.files[0];
+                let reader = new FileReader();
+                reader.onload = () => {
+                    //The Uint8Array allows you to read and write individual 
+                    //bytes within the ArrayBuffer using array-like indexing.
+                    const uint8Array = new Uint8Array(reader.result);
+                    //The toBase64() method of Uint8Array instances returns a base64-encoded string 
+                    //based on the data in this Uint8Array object.
+                    const body = {
+                        "content": uint8Array.toBase64(),
+                        "key": file.name
+                    };
+                    putObject(body);
+                };
+                reader.onerror = (e) => {
+                    console.log('Error : ' + e.type);
+                };
+                reader.readAsArrayBuffer(file);  
             }
 
 

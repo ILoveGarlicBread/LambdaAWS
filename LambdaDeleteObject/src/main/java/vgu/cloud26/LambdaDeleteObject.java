@@ -21,24 +21,20 @@ public class LambdaDeleteObject
     LambdaLogger logger = context.getLogger();
     logger.log("Received delete request for: " + request.getBody());
 
-    // --- 1. Get the key from the request body (same as your LambdaGetObject) ---
     String requestBody = request.getBody();
     JSONObject bodyJSON = new JSONObject(requestBody);
     String key = bodyJSON.getString("key");
 
-    // --- 2. Set the bucket name and region (same as your other Lambdas) ---
     String bucketName = "bucket-lam1303";
     Region region = Region.AP_SOUTHEAST_2;
 
     S3Client s3Client = S3Client.builder().region(region).build();
 
-    // --- 3. Create the DeleteObjectRequest ---
     DeleteObjectRequest deleteRequest = DeleteObjectRequest.builder().bucket(bucketName).key(key).build();
 
     JSONObject responseJson = new JSONObject();
     APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent();
 
-    // --- 4. Call the deleteObject method and handle success/failure ---
     try {
       s3Client.deleteObject(deleteRequest);
 
@@ -56,7 +52,6 @@ public class LambdaDeleteObject
       response.setBody(responseJson.toString());
     }
 
-    // --- 5. Return the response ---
     response.setHeaders(java.util.Collections.singletonMap("Content-Type", "application/json"));
     return response;
   }
