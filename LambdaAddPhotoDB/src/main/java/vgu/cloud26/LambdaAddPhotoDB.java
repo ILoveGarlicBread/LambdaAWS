@@ -3,64 +3,82 @@ package vgu.cloud26;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import com.amazonaws.services.lambda.runtime.events.S3Event;
-import com.amazonaws.services.lambda.runtime.events.models.s3.S3EventNotification.S3EventNotificationRecord;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent; // Import added
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.util.Properties;
+import org.json.JSONObject;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.rds.RdsUtilities;
 import software.amazon.awssdk.services.rds.model.GenerateAuthenticationTokenRequest;
 
-public class LambdaAddPhotoDB implements RequestHandler<S3Event, String> {
+public class LambdaAddPhotoDB
+    implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
 
-  // Configuration (Best practice: use System.getenv for flexibility)
-  private static final String RDS_INSTANCE_HOSTNAME = "database-lam1303.cfk8w6wse6nw.ap-southeast-2.rds.amazonaws.com"; // Your
-  // Host
+  // Configuration
+  private static final String RDS_INSTANCE_HOSTNAME =
+      "database-lam1303.cfk8w6wse6nw.ap-southeast-2.rds.amazonaws.com";
   private static final int RDS_INSTANCE_PORT = 3306;
-  private static final String DB_USER = "cloud26";
+  private static final String DB_USER = "cloud26"; // Ensure this user is set up for IAM Auth
   private static final Region AWS_REGION = Region.AP_SOUTHEAST_2;
-
-  // Connection URL (Same as before)
-  private static final String JDBC_URL = "jdbc:mysql://" + RDS_INSTANCE_HOSTNAME + ":" + RDS_INSTANCE_PORT + "/Cloud26";
+  private static final String JDBC_URL =
+      "jdbc:mysql://" + RDS_INSTANCE_HOSTNAME + ":" + RDS_INSTANCE_PORT + "/Cloud26";
 
   @Override
-  public String handleRequest(S3Event event, Context context) {
+  public APIGatewayProxyResponseEvent handleRequest(
+      APIGatewayProxyRequestEvent event, Context context) {
     LambdaLogger logger = context.getLogger();
+
+    // 1. Parse the body passed down from the Orchestrator
+    String requestBody = event.getBody();
+    JSONObject bodyJSON = new JSONObject(requestBody);
+
+    // Extract required fields
+    // Default to empty string if missing to prevent crash
+    String originalFileName = bodyJSON.optString("key", "unknown.jpg");
+    String description = bodyJSON.optString("description", "No description provided");
 
     try {
       Class.forName("com.mysql.cj.jdbc.Driver");
+      logger.log("Processing DB insert for file: " + originalFileName);
 
-      for (S3EventNotificationRecord record : event.getRecords()) {
+      // 2. Hash the filename for S3Key column
+      String hashedKey = hashString(originalFileName);
 
-        String originalFileName = record.getS3().getObject().getKey();
-        logger.log("Processing file: " + originalFileName);
+      // 3. Connect and Insert
+      Properties props = setMySqlConnectionProperties();
+      try (Connection mySQLClient = DriverManager.getConnection(JDBC_URL, props)) {
 
-        String hashedKey = hashString(originalFileName);
+        String sql = "INSERT INTO Photos (Description, S3Key) VALUES (?, ?)";
 
-        Properties props = setMySqlConnectionProperties();
-        try (Connection mySQLClient = DriverManager.getConnection(JDBC_URL, props)) {
-
-          String sql = "INSERT INTO Photos (Description, S3Key) VALUES (?, ?)";
-
-          try (PreparedStatement st = mySQLClient.prepareStatement(sql)) {
-            st.setString(1, originalFileName);
-            st.setString(2, hashedKey);
-            st.executeUpdate();
-            logger.log("Inserted row for: " + originalFileName);
-          }
+        try (PreparedStatement st = mySQLClient.prepareStatement(sql)) {
+          st.setString(1, description); // User's Description
+          st.setString(2, hashedKey); // Hashed Key
+          st.executeUpdate();
+          logger.log("Inserted row: " + description + " | " + hashedKey);
         }
       }
-      return "Success";
+
+      // 4. Return JSON Success
+      return createResponse(200, "Success: Row added to DB");
 
     } catch (Exception ex) {
       logger.log("Error: " + ex.toString());
-      return "Error";
+      return createResponse(500, "Error adding to DB: " + ex.getMessage());
     }
+  }
+
+  // Helper to create standardized JSON response
+  private APIGatewayProxyResponseEvent createResponse(int statusCode, String message) {
+    return new APIGatewayProxyResponseEvent()
+        .withStatusCode(statusCode)
+        .withBody(message)
+        .withIsBase64Encoded(false);
   }
 
   private static Properties setMySqlConnectionProperties() throws Exception {
@@ -68,9 +86,7 @@ public class LambdaAddPhotoDB implements RequestHandler<S3Event, String> {
     mysqlConnectionProperties.setProperty("useSSL", "true");
     mysqlConnectionProperties.setProperty("verifyServerCertificate", "false");
     mysqlConnectionProperties.setProperty("user", DB_USER);
-
     mysqlConnectionProperties.setProperty("password", generateAuthToken());
-
     return mysqlConnectionProperties;
   }
 
@@ -92,8 +108,7 @@ public class LambdaAddPhotoDB implements RequestHandler<S3Event, String> {
     StringBuilder hexString = new StringBuilder(2 * encodedhash.length);
     for (int i = 0; i < encodedhash.length; i++) {
       String hex = Integer.toHexString(0xff & encodedhash[i]);
-      if (hex.length() == 1)
-        hexString.append('0');
+      if (hex.length() == 1) hexString.append('0');
       hexString.append(hex);
     }
     return hexString.toString();

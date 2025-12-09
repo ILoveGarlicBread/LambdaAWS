@@ -1,39 +1,117 @@
 <!DOCTYPE html>
-<!--
-Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
-Click nbfs://nbhost/SystemFileSystem/Templates/JSP_Servlet/Html.html to edit this template
--->
 <html>
     <head>
         <title>Bucket List</title>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-            table, th, td {
-                border: 1px solid;
-            }
+            table, th, td { border: 1px solid; border-collapse: collapse; padding: 5px; }
+            #status_message { white-space: pre-wrap; margin-top: 10px; font-family: monospace; }
         </style>
-
     </head>
     <body>
-        <div>
-            <label for="file_input">file: </label>
-            <input type="file" id="file_input" >
-            <button id="upload_button" onclick="uploadObject()">Upload</button>
+        <div class="upload-section">
+            <h3>Upload New File</h3>
+            <div>
+                <label for="file_input">File: </label>
+                <input type="file" id="file_input">
+            </div>
+            <div style="margin-top: 5px;">
+                <label for="description_input">Description: </label>
+                <input type="text" id="description_input" placeholder="Enter file description">
+            </div>
+            <button id="upload_button" onclick="uploadObject()" style="margin-top: 10px;">Upload</button>
+            <div id="status_message"></div>
         </div>
 
         <div><h1>Bucket List</h1></div>
         <div>
-            <table id="objectsTable">
-            </table>
+            <table id="objectsTable"></table>
         </div>
         <div>
-            <img src="" id="download_image">
+            <img src="" id="download_image" style="max-width: 300px; margin-top: 20px;">
         </div>
+
         <script>
-            //getObjectList();
+            const ORCHESTRATOR_URL = "https://of4mh4f3bcs2y3gpztw2jujui40lviuj.lambda-url.ap-southeast-2.on.aws/"; 
+            const LIST_URL = "https://xjok7sqel75h3hshg7doevb4xq0fqlwe.lambda-url.ap-southeast-2.on.aws/";
+            const DOWNLOAD_URL = "https://7jrbw2fn3ucpwdnfqh32kgdbgy0upgsk.lambda-url.ap-southeast-2.on.aws/";
+            const DELETE_URL = "https://ntek3tbvsgoit5nfoc3ontlpdu0bgkeo.lambda-url.ap-southeast-2.on.aws/";
+
             fetchListOfObjects();
 
+            function uploadObject() {
+                let file_input = document.getElementById("file_input");
+                let desc_input = document.getElementById("description_input");
+                let status_div = document.getElementById("status_message");
+                
+                if (file_input.files.length === 0) {
+                    alert("Please select a file first.");
+                    return;
+                }
+
+                let file = file_input.files[0];
+                let description = desc_input.value;
+                status_div.innerText = "Processing upload...";
+
+                let reader = new FileReader();
+                reader.onload = () => {
+                    const uint8Array = new Uint8Array(reader.result);
+                    
+                    // Construct the payload for the Orchestrator
+                    const body = {
+                        "content": uint8Array.toBase64(),
+                        "key": file.name,
+                        "description": description // Added description
+                    };
+                    
+                    sendToOrchestrator(body);
+                };
+                reader.onerror = (e) => {
+                    console.log('Error : ' + e.type);
+                    status_div.innerText = "Error reading file.";
+                };
+                reader.readAsArrayBuffer(file);  
+            }
+
+            function sendToOrchestrator(jsonBody) {
+                let status_div = document.getElementById("status_message");
+
+                fetch(ORCHESTRATOR_URL, {
+                     method: 'POST',
+                     body: JSON.stringify(jsonBody),
+                     headers: { 'Content-Type': 'application/json' }
+                })
+                .then((resp) => resp.json()) // Orchestrator returns JSON
+                .then(function(response) {
+                    console.info('Orchestrator Response:', response);
+                    
+                    // Display the results of the 3 activities
+                    // The Orchestrator returns a JSON object with keys like "Activity_1...", etc.
+                    status_div.innerText = JSON.stringify(response, null, 4);
+                    
+                    // Refresh the list to show the new file
+                    fetchListOfObjects();
+                })
+                .catch(error => {
+                    console.error('Upload Error:', error);
+                    status_div.innerText = "Upload Failed: " + error.message;
+                });
+            }
+
+            // --- Existing Helper Functions (Unchanged) ---
+
+            function fetchListOfObjects() {
+                fetch(LIST_URL)
+                        .then((response) => {
+                            if (!response.ok) throw new Error(`HTTP error, status = ${response.status}`);
+                            return response.text();
+                        })
+                        .then((text) => renderListOfObjects(text))
+                        .catch((error) => console.log(`Error: ${error.message}`));
+            }
+
+            const THUMBNAIL_URL = "https://d7ei42hx6l26ofukqnrtijzgce0wltmo.lambda-url.ap-southeast-2.on.aws/"; 
 
             function renderListOfObjects(listOfObjects) {
                 let objectsTable = document.getElementById("objectsTable");
@@ -42,12 +120,34 @@ Click nbfs://nbhost/SystemFileSystem/Templates/JSP_Servlet/Html.html to edit thi
                 }
                 let objectsArray = JSON.parse(listOfObjects);
 
-                for (let i = 0; i < objectsArray.length; i = i + 1) {
+                for (let i = 0; i < objectsArray.length; i++) {
                     let row = document.createElement("tr");
+
+                    // --- NEW: Thumbnail Column ---
+                    let thumbCell = document.createElement("td");
+                    let thumbImg = document.createElement("img");
+                    
+                    // Style the thumbnail
+                    thumbImg.style.width = "50px"; 
+                    thumbImg.style.height = "auto";
+                    thumbImg.alt = "Loading...";
+                    
+                    // We set a temporary loading text or placeholder
+                    // Then we fetch the actual image data
+                    fetchThumbnail(objectsArray[i].key, thumbImg);
+                    
+                    thumbCell.appendChild(thumbImg);
+                    row.appendChild(thumbCell);
+                    // -----------------------------
+
+                    // Existing Key Column
                     let keyCell = document.createElement("td");
-                    keyCell.innerHTML = objectsArray[i].key;
-                    /* */
+                    keyCell.innerText = objectsArray[i].key;
+                    row.appendChild(keyCell);
+
+                    // ... (Keep your existing Download and Delete cells here) ...
                     let downloadCell = document.createElement("td");
+                    // ... code for download button ...
                     let downloadButton = document.createElement("button");
                     downloadButton.addEventListener("click", function () {
                         //downloadObject(objectsArray[i].key);
@@ -55,205 +155,87 @@ Click nbfs://nbhost/SystemFileSystem/Templates/JSP_Servlet/Html.html to edit thi
                     });
                     downloadButton.innerHTML = "Download";
                     downloadCell.appendChild(downloadButton);
-                    /* */
+                    row.appendChild(downloadCell);
+
                     let deleteCell = document.createElement("td");
+                    // ... code for delete button ...
                     let deleteButton = document.createElement("button");
                     deleteButton.addEventListener("click", function () {
                         deleteObject(objectsArray[i].key);
                     });
                     deleteButton.innerHTML = "Delete";
                     deleteCell.appendChild(deleteButton);
-                    /* */
-                    row.appendChild(keyCell);
-                    row.appendChild(downloadCell);
                     row.appendChild(deleteCell);
+
                     objectsTable.appendChild(row);
                 }
-
             }
 
-            function fetchListOfObjects() {
-                let url = "https://xjok7sqel75h3hshg7doevb4xq0fqlwe.lambda-url.ap-southeast-2.on.aws/";
-                fetch(url)
-                        .then((response) => {
-                            if (!response.ok) {
-                                throw new Error(`HTTP error, status = ${response.status}`);
-                            }
-                            return response.text();
-                        })
-                        .then((text) => {
-                            renderListOfObjects(text);
-                        })
-                        .catch((error) => {
-                            console.log(`Error: ${error.message}`);
-                        });
-
-            }
-
+            // Helper function to fetch the image and set the src
+            function fetchThumbnail(key, imgElement) {
+                // We send the key in the body (or you could use query param ?key=...)
+                fetch(THUMBNAIL_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ "key": key }),
+                    headers: { 'Content-Type': 'application/json' }
+                })
+                .then(response => {
+                    if (!response.ok) throw new Error("No thumbnail");
+                    return response.blob();
+                })
+                .then(blob => {
+                    // Create a local URL for the blob and set it as the image source
+                    const objectURL = URL.createObjectURL(blob);
+                    imgElement.src = objectURL;
+                })
+                .catch(err => {
+                    console.log("Thumbnail error for " + key, err);
+                    imgElement.alt = "No Img"; // Show text if failed
+                });
+            } 
 
             function fetchObject(key) {
-                const body = {
-                    "key": key
-                };
-                /*       
-                 let url = "https://c2by4ajeblmkwtz364qoludmnu0bgoge.lambda-url.ap-southeast-1.on.aws/?key=" + key;
-                 */
-                let url = "https://7jrbw2fn3ucpwdnfqh32kgdbgy0upgsk.lambda-url.ap-southeast-2.on.aws/";
-
-                fetch(url,
-                        {
+                const body = { "key": key };
+                fetch(DOWNLOAD_URL, {
                             method: 'PUT',
                             body: JSON.stringify(body)
-                        }
-                        )
+                        })
                         .then(response => response.blob())
                         .then((myBlob) => {
                             const objectURL = URL.createObjectURL(myBlob);
-                            const img_S3 = document.getElementById("download_image");
-                            img_S3.src = objectURL;
+                            document.getElementById("download_image").src = objectURL;
                         });
             }
 
-            /* GET BUCKET OBJECT LIST */
-            function getObjectList() {
-                let objectsTable = document.getElementById("objectsTable");
-                while (objectsTable.firstChild) {
-                    objectsTable.removeChild(objectsTable.lastChild);
-                }
-                const xhr = new XMLHttpRequest();
-                xhr.onreadystatechange = () => {
-                    if (xhr.readyState === 4) {
-                        if (xhr.status === 200) {
-                            let objectsArray = JSON.parse(xhr.responseText);
-
-                            for (let i = 0; i < objectsArray.length; i = i + 1) {
-                                let row = document.createElement("tr");
-                                let keyCell = document.createElement("td");
-                                keyCell.innerHTML = objectsArray[i].key;
-                                /* */
-                                let downloadCell = document.createElement("td");
-                                let downloadButton = document.createElement("button");
-                                downloadButton.addEventListener("click", function () {
-                                    //downloadObject(objectsArray[i].key);
-                                    fetchObject(objectsArray[i].key)
-                                });
-                                downloadButton.innerHTML = "Download";
-                                downloadCell.appendChild(downloadButton);
-                                /* */
-                                let deleteCell = document.createElement("td");
-                                let deleteButton = document.createElement("button");
-                                deleteButton.addEventListener("click", function () {
-                                    deleteObject(objectsArray[i].key);
-                                });
-                                deleteButton.innerHTML = "Delete";
-                                deleteCell.appendChild(deleteButton);
-                                /* */
-                                row.appendChild(keyCell);
-                                row.appendChild(downloadCell);
-                                row.appendChild(deleteCell);
-                                objectsTable.appendChild(row);
-                            }
-
-                        } else {
-                            console.log(xhr.responseText);
-                        }
-                    }
-                };
-                xhr.open("GET", "https://xjok7sqel75h3hshg7doevb4xq0fqlwe.lambda-url.ap-southeast-2.on.aws/");
-                xhr.send(null);
-
-            }
-
-
-            /* DOWNLOAD OBJECT */
-            function downloadObject(key) {
-                const xhr = new XMLHttpRequest();
-                xhr.onload = function () {
-                    let reader = new FileReader();
-                    reader.onloadend = function () {
-                        if (xhr.status === 200) {
-                            var outputImg = document.getElementById('download_image');
-                            outputImg.src = reader.result;
-                        } else {
-                            console.log(xhr.status + " : " + xhr.responseText);
-                        }
-                    };
-                    reader.readAsDataURL(xhr.response);
-                };
-                xhr.open("PUT", "https://7jrbw2fn3ucpwdnfqh32kgdbgy0upgsk.lambda-url.ap-southeast-2.on.aws/");
-                const body1 = JSON.stringify({
-                    "key": key
-                });
-                xhr.responseType = 'blob';
-                xhr.send(body1);
-            }
-
             function deleteObject(key) {
-                const url = "https://ntek3tbvsgoit5nfoc3ontlpdu0bgkeo.lambda-url.ap-southeast-2.on.aws/";
-
-                const body = {
-                    "key": key
-                };
-
-                fetch(url, {
+                const body = { "key": key };
+                fetch(DELETE_URL, {
                     method: 'DELETE', 
                     body: JSON.stringify(body),
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Content-Type': 'application/json' }
                 })
                 .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error, status = ${response.status}`);
-                    }
-                    console.log('Delete request successful'); 
-                })
-                .then(data => {
+                    if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+                    console.log('Delete successful'); 
                     fetchListOfObjects();
                 })
                 .catch(error => {
-                    console.error('Error deleting object:', error.message);
-                    alert('Failed to delete the object.'); 
+                    console.error('Error deleting:', error.message);
+                    alert('Failed to delete.'); 
                 });
             }
-             function putObject(json) {
-             let url = "https://4wzgu4vdsol73gmezefqyeeucq0dmhnj.lambda-url.ap-southeast-2.on.aws/";
-             fetch(url, {
-                     method: 'POST',
-                     body: JSON.stringify(json)
-                })
-                .then((resp) => resp.text())
-                .then(function(response) {
-                    fetchListOfObjects();
-                    console.info('fetch()', response);
-            });
-        };
-            ;
-            function uploadObject() {
-                let file_input = document.getElementById("file_input");
-                let file = file_input.files[0];
-                let reader = new FileReader();
-                reader.onload = () => {
-                    //The Uint8Array allows you to read and write individual 
-                    //bytes within the ArrayBuffer using array-like indexing.
-                    const uint8Array = new Uint8Array(reader.result);
-                    //The toBase64() method of Uint8Array instances returns a base64-encoded string 
-                    //based on the data in this Uint8Array object.
-                    const body = {
-                        "content": uint8Array.toBase64(),
-                        "key": file.name
-                    };
-                    putObject(body);
-                };
-                reader.onerror = (e) => {
-                    console.log('Error : ' + e.type);
-                };
-                reader.readAsArrayBuffer(file);  
+
+            // Polyfill for toBase64 if not supported by browser natively on Uint8Array
+            if (!Uint8Array.prototype.toBase64) {
+                Uint8Array.prototype.toBase64 = function() {
+                    let binary = '';
+                    let len = this.byteLength;
+                    for (let i = 0; i < len; i++) {
+                        binary += String.fromCharCode(this[i]);
+                    }
+                    return window.btoa(binary);
+                }
             }
-
-
         </script>
     </body>
-
 </html>
-

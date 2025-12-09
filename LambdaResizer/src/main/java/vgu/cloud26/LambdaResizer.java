@@ -3,29 +3,33 @@ package vgu.cloud26;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import com.amazonaws.services.lambda.runtime.events.S3Event;
-import com.amazonaws.services.lambda.runtime.events.models.s3.S3EventNotification.S3EventNotificationRecord;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.imageio.ImageIO;
-import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import org.json.JSONObject;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
-// Handler value: example.Handler
-public class LambdaResizer implements RequestHandler<S3Event, String> {
+public class LambdaResizer
+    implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
 
+  // Configuration
+  private static final String RESIZED_BUCKET_NAME =
+      "resizebucket-lam1303"; // Update this to your actual resize
+  // bucket name
   private static final float MAX_DIMENSION = 100;
   private final String REGEX = ".*\\.([^\\.]*)";
   private final String JPG_TYPE = "jpg";
@@ -34,119 +38,109 @@ public class LambdaResizer implements RequestHandler<S3Event, String> {
   private final String PNG_MIME = "image/png";
 
   @Override
-  public String handleRequest(S3Event s3event, Context context) {
+  public APIGatewayProxyResponseEvent handleRequest(
+      APIGatewayProxyRequestEvent event, Context context) {
     LambdaLogger logger = context.getLogger();
+    logger.log("Resize Worker Started.");
 
     try {
-      logger.log("Started!... ");
-      S3EventNotificationRecord record = s3event.getRecords().get(0);
+      // 1. Parse Data from Orchestrator
+      String requestBody = event.getBody();
+      JSONObject bodyJSON = new JSONObject(requestBody);
 
-      String srcBucket = "bucket-lam1303";
+      String originalKey = bodyJSON.getString("key");
+      String contentBase64 = bodyJSON.getString("content");
 
-      // Object key may have spaces or unicode non-ASCII characters.
-      String srcKey = record.getS3().getObject().getUrlDecodedKey();
+      // Generate new filename
+      String dstKey = "resized-" + originalKey;
 
-      // String dstBucket = "lab-source-images-resized";
-      String dstBucket = "resize" + srcBucket;
-      String dstKey = "resized-" + srcKey;
-
-      // Infer the image type.
-      Matcher matcher = Pattern.compile(REGEX).matcher(srcKey);
+      // 2. Infer Image Type
+      Matcher matcher = Pattern.compile(REGEX).matcher(originalKey);
       if (!matcher.matches()) {
-        logger.log("Unable to infer image type for key " + srcKey);
-        return "";
+        return createResponse(400, "Error: Unable to infer image type for key " + originalKey);
       }
-      String imageType = matcher.group(1);
+      String imageType = matcher.group(1).toLowerCase();
       if (!(JPG_TYPE.equals(imageType)) && !(PNG_TYPE.equals(imageType))) {
-        logger.log("Skipping non-image " + srcKey);
-        return "";
+        return createResponse(400, "Error: Skipping non-image " + originalKey);
       }
 
-      // Download the image from S3 into a stream
-      S3Client s3Client = S3Client.builder().build();
-      InputStream s3Object = getObject(s3Client, srcBucket, srcKey);
+      // 3. Decode Base64 to InputStream (Memory)
+      byte[] imageBytes = Base64.getDecoder().decode(contentBase64);
+      ByteArrayInputStream inputStream = new ByteArrayInputStream(imageBytes);
 
-      // Read the source image and resize it
-      BufferedImage srcImage = ImageIO.read(s3Object);
+      // 4. Resize Logic (Your Custom Logic)
+      BufferedImage srcImage = ImageIO.read(inputStream);
+      if (srcImage == null) {
+        return createResponse(400, "Error: Could not read image data.");
+      }
       BufferedImage newImage = resizeImage(srcImage);
-      // BufferedImage newImage = srcImage;
 
-      // Re-encode image to target format
+      // 5. Re-encode image to bytes
       ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
       ImageIO.write(newImage, imageType, outputStream);
+      byte[] resizedBytes = outputStream.toByteArray();
 
-      // Upload new image to S3
-      try {
-        putObject(s3Client, outputStream, dstBucket, dstKey, imageType, logger);
-        logger.log("Object successfully resized");
-        return "Object successfully resized";
-      } catch (AwsServiceException e) {
-        logger.log(e.awsErrorDetails().errorMessage());
-        return e.awsErrorDetails().errorMessage();
-      }
-    } catch (IOException e) {
-      throw new RuntimeException(e);
+      // 6. Upload to Resized Bucket
+      S3Client s3Client = S3Client.builder().region(Region.AP_SOUTHEAST_2).build();
+      uploadToS3(s3Client, resizedBytes, RESIZED_BUCKET_NAME, dstKey, imageType, logger);
+
+      return createResponse(200, "Success: Resized and uploaded " + dstKey);
+
+    } catch (Exception e) {
+      logger.log("Error resizing: " + e.getMessage());
+      e.printStackTrace();
+      return createResponse(500, "Error resizing: " + e.getMessage());
     }
   }
 
-  private InputStream getObject(S3Client s3Client, String bucket, String key) {
-    GetObjectRequest getObjectRequest = GetObjectRequest.builder().bucket(bucket).key(key).build();
-    return s3Client.getObject(getObjectRequest);
-  }
+  // --- Helper Methods ---
 
-  private void putObject(
+  private void uploadToS3(
       S3Client s3Client,
-      ByteArrayOutputStream outputStream,
+      byte[] data,
       String bucket,
       String key,
       String imageType,
       LambdaLogger logger) {
     Map<String, String> metadata = new HashMap<>();
-    metadata.put("Content-Length", Integer.toString(outputStream.size()));
+    metadata.put("Content-Length", Integer.toString(data.length));
+
     if (JPG_TYPE.equals(imageType)) {
       metadata.put("Content-Type", JPG_MIME);
     } else if (PNG_TYPE.equals(imageType)) {
       metadata.put("Content-Type", PNG_MIME);
     }
 
-    PutObjectRequest putObjectRequest = PutObjectRequest.builder().bucket(bucket).key(key).metadata(metadata).build();
+    PutObjectRequest putRequest =
+        PutObjectRequest.builder().bucket(bucket).key(key).metadata(metadata).build();
 
-    // Uploading to S3 destination bucket
     logger.log("Writing to: " + bucket + "/" + key);
-    s3Client.putObject(putObjectRequest, RequestBody.fromBytes(outputStream.toByteArray()));
+    s3Client.putObject(putRequest, RequestBody.fromBytes(data));
   }
 
-  /**
-   * Resizes (shrinks) an image into a small, thumbnail-sized image.
-   *
-   * <p>
-   * The new image is scaled down proportionally based on the source image. The
-   * scaling factor is
-   * determined based on the value of MAX_DIMENSION. The resulting new image has
-   * max(height, width)
-   * = MAX_DIMENSION.
-   *
-   * @param srcImage BufferedImage to resize.
-   * @return New BufferedImage that is scaled down to thumbnail size.
-   */
+  // (Kept your exact resizing logic)
   private BufferedImage resizeImage(BufferedImage srcImage) {
     int srcHeight = srcImage.getHeight();
     int srcWidth = srcImage.getWidth();
-    // Infer scaling factor to avoid stretching image unnaturally
     float scalingFactor = Math.min(MAX_DIMENSION / srcWidth, MAX_DIMENSION / srcHeight);
     int width = (int) (scalingFactor * srcWidth);
     int height = (int) (scalingFactor * srcHeight);
 
     BufferedImage resizedImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
     Graphics2D graphics = resizedImage.createGraphics();
-    // Fill with white before applying semi-transparent (alpha) images
     graphics.setPaint(Color.white);
     graphics.fillRect(0, 0, width, height);
-    // Simple bilinear resize
     graphics.setRenderingHint(
         RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
     graphics.drawImage(srcImage, 0, 0, width, height, null);
     graphics.dispose();
     return resizedImage;
+  }
+
+  private APIGatewayProxyResponseEvent createResponse(int statusCode, String message) {
+    return new APIGatewayProxyResponseEvent()
+        .withStatusCode(statusCode)
+        .withBody(message)
+        .withIsBase64Encoded(false);
   }
 }

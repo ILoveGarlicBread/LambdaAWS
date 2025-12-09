@@ -27,7 +27,8 @@ public class LambdaUploadObject
 
     byte[] objBytes = Base64.getDecoder().decode(content.getBytes());
 
-    PutObjectRequest putObjectRequest = PutObjectRequest.builder().bucket(bucketName).key(objName).build();
+    PutObjectRequest putObjectRequest =
+        PutObjectRequest.builder().bucket(bucketName).key(objName).build();
 
     S3Client s3Client = S3Client.builder().region(Region.AP_SOUTHEAST_2).build();
     s3Client.putObject(putObjectRequest, RequestBody.fromBytes(objBytes));
