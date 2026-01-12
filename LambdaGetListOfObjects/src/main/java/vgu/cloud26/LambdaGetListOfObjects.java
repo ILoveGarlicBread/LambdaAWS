@@ -1,6 +1,5 @@
 package vgu.cloud26;
 
-
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
@@ -8,7 +7,6 @@ import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent
 import java.util.List;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.ListObjectsRequest;
@@ -18,15 +16,25 @@ import software.amazon.awssdk.services.s3.model.S3Object;
 public class LambdaGetListOfObjects implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
 
     @Override
-    public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent request, Context context) {
-        context.getLogger().log("Received request: " + request.getBody());
+    public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent event, Context context) { // <--- Renamed 'request' to 'event'
+        
+        // --- WARMER CHECK (Now works!) ---
+        if (event.getBody() != null && event.getBody().contains("warmer")) {
+            context.getLogger().log("Warming event received. Exiting.");
+            return new APIGatewayProxyResponseEvent()
+                    .withStatusCode(200)
+                    .withBody("Warmed");
+        }
+        // ---------------------------------
+
+        context.getLogger().log("Received request: " + event.getBody()); // Updated variable name here too
 
         String bucketName = "bucket-lam1303";
 
         S3Client s3Client = S3Client.builder()
-                //.credentialsProvider(InstanceProfileCredentialsProvider.create())
                 .region(Region.AP_SOUTHEAST_2)
                 .build();
+                
         ListObjectsRequest listObjects = ListObjectsRequest
                 .builder()
                  .bucket(bucketName)
@@ -42,17 +50,16 @@ public class LambdaGetListOfObjects implements RequestHandler<APIGatewayProxyReq
             obj.put("key", object.key());
             obj.put("size", calKb(object.size()));
             objArray.put(obj);
-
         }
 
-        APIGatewayProxyResponseEvent response
-                = new APIGatewayProxyResponseEvent();
+        APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent();
         response.setStatusCode(200);
         response.setBody(objArray.toString());
         response.setHeaders(java.util.Collections.singletonMap("Content-Type", "application/json"));
         return response;
     }
-    //convert bytes to kbs.
+
+    // Convert bytes to KBs
     private static long calKb(Long val) {
         return val / 1024;
     }

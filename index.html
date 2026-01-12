@@ -33,13 +33,17 @@
         </div>
 
         <script>
+            // --- CONFIGURATION ---
             const ORCHESTRATOR_URL = "https://of4mh4f3bcs2y3gpztw2jujui40lviuj.lambda-url.ap-southeast-2.on.aws/"; 
             const LIST_URL = "https://xjok7sqel75h3hshg7doevb4xq0fqlwe.lambda-url.ap-southeast-2.on.aws/";
             const DOWNLOAD_URL = "https://7jrbw2fn3ucpwdnfqh32kgdbgy0upgsk.lambda-url.ap-southeast-2.on.aws/";
-            const DELETE_URL = "https://ntek3tbvsgoit5nfoc3ontlpdu0bgkeo.lambda-url.ap-southeast-2.on.aws/";
+            const DELETE_URL = "https://3i2keqr3yusmwnxqqdf2wcwude0viyim.lambda-url.ap-southeast-2.on.aws/";
+            const THUMBNAIL_URL = "https://d7ei42hx6l26ofukqnrtijzgce0wltmo.lambda-url.ap-southeast-2.on.aws/"; 
 
+            // Initialize List
             fetchListOfObjects();
 
+            // --- UPLOAD LOGIC ---
             function uploadObject() {
                 let file_input = document.getElementById("file_input");
                 let desc_input = document.getElementById("description_input");
@@ -58,11 +62,10 @@
                 reader.onload = () => {
                     const uint8Array = new Uint8Array(reader.result);
                     
-                    // Construct the payload for the Orchestrator
                     const body = {
                         "content": uint8Array.toBase64(),
                         "key": file.name,
-                        "description": description // Added description
+                        "description": description
                     };
                     
                     sendToOrchestrator(body);
@@ -82,15 +85,10 @@
                      body: JSON.stringify(jsonBody),
                      headers: { 'Content-Type': 'application/json' }
                 })
-                .then((resp) => resp.json()) // Orchestrator returns JSON
+                .then((resp) => resp.json()) 
                 .then(function(response) {
                     console.info('Orchestrator Response:', response);
-                    
-                    // Display the results of the 3 activities
-                    // The Orchestrator returns a JSON object with keys like "Activity_1...", etc.
                     status_div.innerText = JSON.stringify(response, null, 4);
-                    
-                    // Refresh the list to show the new file
                     fetchListOfObjects();
                 })
                 .catch(error => {
@@ -99,8 +97,39 @@
                 });
             }
 
-            // --- Existing Helper Functions (Unchanged) ---
+            // --- DELETE LOGIC (UPDATED) ---
+            function deleteObject(key) {
+                let status_div = document.getElementById("status_message");
+                
+                // 1. Update status to show we are working
+                status_div.innerText = "Processing delete for " + key + "...";
 
+                const body = { "key": key };
+                fetch(DELETE_URL, {
+                    method: 'DELETE', 
+                    body: JSON.stringify(body),
+                    headers: { 'Content-Type': 'application/json' }
+                })
+                .then(response => {
+                    // 2. We now expect JSON back from the orchestrator
+                    return response.json(); 
+                })
+                .then(jsonResponse => {
+                    console.log('Delete successful', jsonResponse);
+                    
+                    // 3. Display the detailed report from the Orchestrator
+                    status_div.innerText = JSON.stringify(jsonResponse, null, 4);
+                    
+                    // 4. Refresh the table
+                    fetchListOfObjects();
+                })
+                .catch(error => {
+                    console.error('Error deleting:', error.message);
+                    status_div.innerText = "Delete Failed: " + error.message;
+                });
+            }
+
+            // --- LIST & THUMBNAIL LOGIC ---
             function fetchListOfObjects() {
                 fetch(LIST_URL)
                         .then((response) => {
@@ -110,8 +139,6 @@
                         .then((text) => renderListOfObjects(text))
                         .catch((error) => console.log(`Error: ${error.message}`));
             }
-
-            const THUMBNAIL_URL = "https://d7ei42hx6l26ofukqnrtijzgce0wltmo.lambda-url.ap-southeast-2.on.aws/"; 
 
             function renderListOfObjects(listOfObjects) {
                 let objectsTable = document.getElementById("objectsTable");
@@ -123,42 +150,33 @@
                 for (let i = 0; i < objectsArray.length; i++) {
                     let row = document.createElement("tr");
 
-                    // --- NEW: Thumbnail Column ---
+                    // Thumbnail Column
                     let thumbCell = document.createElement("td");
                     let thumbImg = document.createElement("img");
-                    
-                    // Style the thumbnail
                     thumbImg.style.width = "50px"; 
                     thumbImg.style.height = "auto";
                     thumbImg.alt = "Loading...";
-                    
-                    // We set a temporary loading text or placeholder
-                    // Then we fetch the actual image data
                     fetchThumbnail(objectsArray[i].key, thumbImg);
-                    
                     thumbCell.appendChild(thumbImg);
                     row.appendChild(thumbCell);
-                    // -----------------------------
 
-                    // Existing Key Column
+                    // Key Column
                     let keyCell = document.createElement("td");
                     keyCell.innerText = objectsArray[i].key;
                     row.appendChild(keyCell);
 
-                    // ... (Keep your existing Download and Delete cells here) ...
+                    // Download Column
                     let downloadCell = document.createElement("td");
-                    // ... code for download button ...
                     let downloadButton = document.createElement("button");
                     downloadButton.addEventListener("click", function () {
-                        //downloadObject(objectsArray[i].key);
                         fetchObject(objectsArray[i].key)
                     });
                     downloadButton.innerHTML = "Download";
                     downloadCell.appendChild(downloadButton);
                     row.appendChild(downloadCell);
 
+                    // Delete Column
                     let deleteCell = document.createElement("td");
-                    // ... code for delete button ...
                     let deleteButton = document.createElement("button");
                     deleteButton.addEventListener("click", function () {
                         deleteObject(objectsArray[i].key);
@@ -171,9 +189,7 @@
                 }
             }
 
-            // Helper function to fetch the image and set the src
             function fetchThumbnail(key, imgElement) {
-                // We send the key in the body (or you could use query param ?key=...)
                 fetch(THUMBNAIL_URL, {
                     method: 'POST',
                     body: JSON.stringify({ "key": key }),
@@ -184,16 +200,16 @@
                     return response.blob();
                 })
                 .then(blob => {
-                    // Create a local URL for the blob and set it as the image source
                     const objectURL = URL.createObjectURL(blob);
                     imgElement.src = objectURL;
                 })
                 .catch(err => {
-                    console.log("Thumbnail error for " + key, err);
-                    imgElement.alt = "No Img"; // Show text if failed
+                    // console.log("Thumbnail error for " + key, err);
+                    imgElement.alt = "No Img"; 
                 });
             } 
 
+            // --- DOWNLOAD LOGIC ---
             function fetchObject(key) {
                 const body = { "key": key };
                 fetch(DOWNLOAD_URL, {
@@ -207,25 +223,7 @@
                         });
             }
 
-            function deleteObject(key) {
-                const body = { "key": key };
-                fetch(DELETE_URL, {
-                    method: 'DELETE', 
-                    body: JSON.stringify(body),
-                    headers: { 'Content-Type': 'application/json' }
-                })
-                .then(response => {
-                    if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
-                    console.log('Delete successful'); 
-                    fetchListOfObjects();
-                })
-                .catch(error => {
-                    console.error('Error deleting:', error.message);
-                    alert('Failed to delete.'); 
-                });
-            }
-
-            // Polyfill for toBase64 if not supported by browser natively on Uint8Array
+            // --- UTILS ---
             if (!Uint8Array.prototype.toBase64) {
                 Uint8Array.prototype.toBase64 = function() {
                     let binary = '';

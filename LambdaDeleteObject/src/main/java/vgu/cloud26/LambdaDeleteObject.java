@@ -16,12 +16,20 @@ public class LambdaDeleteObject
 
   @Override
   public APIGatewayProxyResponseEvent handleRequest(
-      APIGatewayProxyRequestEvent request, Context context) {
+      APIGatewayProxyRequestEvent event, Context context) { // <--- Renamed 'request' to 'event'
+
+    // Now this standard code works perfectly because the variable is named 'event'
+    if (event.getBody() != null && event.getBody().contains("warmer")) {
+        context.getLogger().log("Warming event received. Exiting.");
+        return new APIGatewayProxyResponseEvent()
+                .withStatusCode(200)
+                .withBody("Warmed");
+    }
 
     LambdaLogger logger = context.getLogger();
-    logger.log("Received delete request for: " + request.getBody());
+    logger.log("Received delete request for: " + event.getBody()); // Use 'event' here too
 
-    String requestBody = request.getBody();
+    String requestBody = event.getBody();
     JSONObject bodyJSON = new JSONObject(requestBody);
     String key = bodyJSON.getString("key");
 
@@ -48,7 +56,7 @@ public class LambdaDeleteObject
       logger.log("Error deleting object: " + e.getMessage());
 
       responseJson.put("error", e.getMessage());
-      response.setStatusCode(500); // Internal Server Error
+      response.setStatusCode(500); 
       response.setBody(responseJson.toString());
     }
 

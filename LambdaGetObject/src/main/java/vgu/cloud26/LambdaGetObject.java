@@ -22,13 +22,20 @@ public class LambdaGetObject
 
   @Override
   public APIGatewayProxyResponseEvent handleRequest(
-      APIGatewayProxyRequestEvent request, Context context) {
+      APIGatewayProxyRequestEvent event, Context context) { // <--- Renamed 'request' to 'event'
 
-    String requestBody = request.getBody();
+    // --- WARMER CHECK ---
+    if (event.getBody() != null && event.getBody().contains("warmer")) {
+        context.getLogger().log("Warming event received. Exiting.");
+        return new APIGatewayProxyResponseEvent()
+                .withStatusCode(200)
+                .withBody("Warmed");
+    }
+    // --------------------
+
+    String requestBody = event.getBody(); // Updated to use 'event'
     JSONObject bodyJSON = new JSONObject(requestBody);
     String key = bodyJSON.getString("key");
-    // Map<String, String> params = request.getQueryStringParameters();
-    // String key = params.get("key");
 
     String bucketName = "bucket-lam1303";
     S3Client s3Client = S3Client.builder().region(Region.AP_SOUTHEAST_2).build();

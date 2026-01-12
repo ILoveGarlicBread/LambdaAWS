@@ -31,7 +31,13 @@ public class LambdaGetPhotosDB
 
   @Override
   public APIGatewayProxyResponseEvent handleRequest(
-      APIGatewayProxyRequestEvent request, Context context) {
+      APIGatewayProxyRequestEvent event, Context context) {
+    if (event.getBody() != null && event.getBody().contains("warmer")) {
+    context.getLogger().log("Warming event received. Exiting.");
+    return new APIGatewayProxyResponseEvent()
+            .withStatusCode(200)
+            .withBody("Warmed");
+}
 
     LambdaLogger logger = context.getLogger();
 

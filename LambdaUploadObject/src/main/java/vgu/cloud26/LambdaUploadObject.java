@@ -17,6 +17,12 @@ public class LambdaUploadObject
   @Override
   public APIGatewayProxyResponseEvent handleRequest(
       APIGatewayProxyRequestEvent event, Context context) {
+    if (event.getBody() != null && event.getBody().contains("warmer")) {
+    context.getLogger().log("Warming event received. Exiting.");
+    return new APIGatewayProxyResponseEvent()
+            .withStatusCode(200)
+            .withBody("Warmed");
+}
 
     String bucketName = "bucket-lam1303";
     String requestBody = event.getBody();

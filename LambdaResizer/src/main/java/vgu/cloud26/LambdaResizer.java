@@ -40,6 +40,12 @@ public class LambdaResizer
   @Override
   public APIGatewayProxyResponseEvent handleRequest(
       APIGatewayProxyRequestEvent event, Context context) {
+    if (event.getBody() != null && event.getBody().contains("warmer")) {
+    context.getLogger().log("Warming event received. Exiting.");
+    return new APIGatewayProxyResponseEvent()
+            .withStatusCode(200)
+            .withBody("Warmed");
+}
     LambdaLogger logger = context.getLogger();
     logger.log("Resize Worker Started.");
 

@@ -1,47 +1,66 @@
-package vgu.cloud26; // Change to your package name
+package vgu.cloud26;
 
 import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import com.amazonaws.services.lambda.runtime.events.S3Event;
-import com.amazonaws.services.lambda.runtime.events.models.s3.S3EventNotification.S3EventNotificationRecord;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
+import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
+import org.json.JSONObject;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 
-public class LambdaDeleteResizedObject implements RequestHandler<S3Event, String> {
+public class LambdaDeleteResizedObject implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
 
-  // 1. Initialize the S3 Client (outside the handler for efficiency)
-  private final AmazonS3 s3Client = AmazonS3ClientBuilder.defaultClient();
+    // Update with your actual Resized Bucket Name
+    private static final String RESIZED_BUCKET_NAME = "resizebucket-lam1303"; 
 
-  // 2. Define the name of your resized bucket (Hardcoded as per class norms,
-  // though env vars are better)
-  private final String RESIZED_BUCKET_NAME = "resizebucket-lam1303";
+    @Override
+    public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent event, Context context) { // <--- Renamed to 'event'
+        
+        // --- WARMER CHECK (Now works because variable is 'event') ---
+        if (event.getBody() != null && event.getBody().contains("warmer")) {
+            context.getLogger().log("Warming event received. Exiting.");
+            return new APIGatewayProxyResponseEvent()
+                    .withStatusCode(200)
+                    .withBody("Warmed");
+        }
+        // ------------------------------------------------------------
 
-  @Override
-  public String handleRequest(S3Event event, Context context) {
-    context.getLogger().log("Received S3 Event: " + event.toString());
+        LambdaLogger logger = context.getLogger();
+        
+        try {
+            // 1. Parse Input (Updated 'request' to 'event')
+            String requestBody = event.getBody(); 
+            JSONObject bodyJSON = new JSONObject(requestBody);
+            String originalKey = bodyJSON.getString("key");
 
-    // 3. Loop through every record in the event (usually just one)
-    for (S3EventNotificationRecord record : event.getRecords()) {
+            // 2. Calculate Resized Key
+            String resizedKey = "resized-" + originalKey;
+            logger.log("Deleting resized image: " + resizedKey);
 
-      // 4. Extract the Key (filename) of the deleted original image
-      String originalKey = record.getS3().getObject().getKey();
-      context.getLogger().log("Original image deleted: " + originalKey);
+            // 3. Delete from S3
+            S3Client s3Client = S3Client.builder().region(Region.AP_SOUTHEAST_2).build();
+            
+            DeleteObjectRequest deleteRequest = DeleteObjectRequest.builder()
+                    .bucket(RESIZED_BUCKET_NAME)
+                    .key(resizedKey)
+                    .build();
 
-      // 5. Calculate the name of the resized image
-      // WARNING: Change this logic to match how you named your resized files!
-      // Example: If original is "dog.png", resized might be "resized-dog.png"
-      String resizedKey = "resized-" + originalKey;
+            s3Client.deleteObject(deleteRequest);
 
-      try {
-        // 6. Delete the corresponding file from the Resized Bucket
-        s3Client.deleteObject(RESIZED_BUCKET_NAME, resizedKey);
-        context.getLogger().log("Successfully deleted resized image: " + resizedKey);
+            return createResponse(200, "Success: Deleted " + resizedKey);
 
-      } catch (Exception e) {
-        context.getLogger().log("Error deleting file: " + e.getMessage());
-        return "Error";
-      }
+        } catch (Exception e) {
+            logger.log("Error deleting resized object: " + e.getMessage());
+            return createResponse(500, "Error: " + e.getMessage());
+        }
     }
-    return "Success";
-  }
+
+    private APIGatewayProxyResponseEvent createResponse(int statusCode, String message) {
+        return new APIGatewayProxyResponseEvent()
+                .withStatusCode(statusCode)
+                .withBody(message)
+                .withIsBase64Encoded(false);
+    }
 }
