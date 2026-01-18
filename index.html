@@ -1,62 +1,102 @@
 <!DOCTYPE html>
 <html>
     <head>
-        <title>Bucket List</title>
+        <title>Cloud26 Photo List</title>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            table, th, td { border: 1px solid; border-collapse: collapse; padding: 5px; }
-            #status_message { white-space: pre-wrap; margin-top: 10px; font-family: monospace; }
-        </style>
     </head>
     <body>
-        <div class="upload-section">
-            <h3>Upload New File</h3>
-            <div>
-                <label for="file_input">File: </label>
-                <input type="file" id="file_input">
-            </div>
-            <div style="margin-top: 5px;">
-                <label for="description_input">Description: </label>
-                <input type="text" id="description_input" placeholder="Enter file description">
-            </div>
-            <button id="upload_button" onclick="uploadObject()" style="margin-top: 10px;">Upload</button>
-            <div id="status_message"></div>
-        </div>
 
-        <div><h1>Bucket List</h1></div>
+        <h3>Login</h3>
         <div>
-            <table id="objectsTable"></table>
+            Email: <input type="text" id="email_input" placeholder="Enter email">
+            <button onclick="login()">Get Token</button>
         </div>
         <div>
-            <img src="" id="download_image" style="max-width: 300px; margin-top: 20px;">
+            Token: <input type="text" id="token_input" placeholder="Token will appear here">
         </div>
+        
+        <hr>
+
+        <h3>Upload Photo</h3>
+        <div>
+            File: <input type="file" id="file_input"> <br><br>
+            Description: <input type="text" id="description_input" placeholder="Photo description"> <br><br>
+            <button onclick="uploadObject()">Upload</button>
+        </div>
+        <div id="status_message" style="margin-top:10px;"></div>
+
+        <hr>
+
+        <h3>Gallery</h3>
+        <button onclick="fetchListOfObjects()">Refresh Gallery</button>
+        <br><br>
+
+        <table id="objectsTable" border="1">
+            <thead>
+                <tr>
+                    <th>Thumbnail</th>
+                    <th>Description</th>
+                    <th>Uploaded By</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+
+        <br>
+        <img src="" id="download_image" style="max-width: 500px; display:none;">
 
         <script>
             // --- CONFIGURATION ---
-            const ORCHESTRATOR_URL = "https://of4mh4f3bcs2y3gpztw2jujui40lviuj.lambda-url.ap-southeast-2.on.aws/"; 
-            const LIST_URL = "https://xjok7sqel75h3hshg7doevb4xq0fqlwe.lambda-url.ap-southeast-2.on.aws/";
+            // 1. UPLOAD
+            const UPLOAD_ORCHESTRATOR_URL = "https://of4mh4f3bcs2y3gpztw2jujui40lviuj.lambda-url.ap-southeast-2.on.aws/"; 
+            
+            // 2. LIST (DB)
+            const LIST_URL = "https://gkmgm4ixft77f2obweta6zhayq0lsemt.lambda-url.ap-southeast-2.on.aws/";
+            
+            // 3. OTHER
             const DOWNLOAD_URL = "https://7jrbw2fn3ucpwdnfqh32kgdbgy0upgsk.lambda-url.ap-southeast-2.on.aws/";
-            const DELETE_URL = "https://3i2keqr3yusmwnxqqdf2wcwude0viyim.lambda-url.ap-southeast-2.on.aws/";
+            const DELETE_ORCHESTRATOR_URL = "https://3i2keqr3yusmwnxqqdf2wcwude0viyim.lambda-url.ap-southeast-2.on.aws/";
             const THUMBNAIL_URL = "https://d7ei42hx6l26ofukqnrtijzgce0wltmo.lambda-url.ap-southeast-2.on.aws/"; 
+            const TOKEN_URL = "https://4owyt7pmfmcbzqiq5etmcn3shq0hfpwv.lambda-url.ap-southeast-2.on.aws/"
 
-            // Initialize List
-            fetchListOfObjects();
+            // --- LOGIN ---
+            function login() {
+                let email = document.getElementById("email_input").value;
+                let tokenInput = document.getElementById("token_input");
+                
+                if (!email) { alert("Enter email first"); return; }
 
-            // --- UPLOAD LOGIC ---
+                fetch(TOKEN_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ "email": email }),
+                    headers: { 'Content-Type': 'application/json' }
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.token) {
+                        tokenInput.value = data.token;
+                        alert("Logged in!");
+                    } else {
+                        alert("Login Failed");
+                    }
+                });
+            }
+
+            // --- UPLOAD ---
             function uploadObject() {
                 let file_input = document.getElementById("file_input");
                 let desc_input = document.getElementById("description_input");
+                let email_input = document.getElementById("email_input");
+                let token_input = document.getElementById("token_input");
                 let status_div = document.getElementById("status_message");
                 
-                if (file_input.files.length === 0) {
-                    alert("Please select a file first.");
-                    return;
-                }
+                if (file_input.files.length === 0) { alert("Select a file"); return; }
+                if (!token_input.value) { alert("Login first"); return; }
 
                 let file = file_input.files[0];
-                let description = desc_input.value;
-                status_div.innerText = "Processing upload...";
+                status_div.innerText = "Uploading...";
 
                 let reader = new FileReader();
                 reader.onload = () => {
@@ -65,172 +105,200 @@
                     const body = {
                         "content": uint8Array.toBase64(),
                         "key": file.name,
-                        "description": description
+                        "description": desc_input.value, 
+                        "token": token_input.value,      
+                        "email": email_input.value       
                     };
                     
-                    sendToOrchestrator(body);
-                };
-                reader.onerror = (e) => {
-                    console.log('Error : ' + e.type);
-                    status_div.innerText = "Error reading file.";
+                    fetch(UPLOAD_ORCHESTRATOR_URL, {
+                         method: 'POST',
+                         body: JSON.stringify(body),
+                         headers: { 'Content-Type': 'application/json' }
+                    })
+                    .then(resp => resp.json()) 
+                    .then(response => {
+                        status_div.innerText = JSON.stringify(response, null, 4);
+                            fetchListOfObjects(); 
+                    })
+                    .catch(err => status_div.innerText = "Error: " + err.message);
                 };
                 reader.readAsArrayBuffer(file);  
             }
 
-            function sendToOrchestrator(jsonBody) {
-                let status_div = document.getElementById("status_message");
+            // --- LIST (UPDATED & SAFER) ---
+            function fetchListOfObjects() {
+                let email = document.getElementById("email_input").value;
+                let token = document.getElementById("token_input").value;
 
-                fetch(ORCHESTRATOR_URL, {
-                     method: 'POST',
-                     body: JSON.stringify(jsonBody),
-                     headers: { 'Content-Type': 'application/json' }
-                })
-                .then((resp) => resp.json()) 
-                .then(function(response) {
-                    console.info('Orchestrator Response:', response);
-                    status_div.innerText = JSON.stringify(response, null, 4);
-                    fetchListOfObjects();
-                })
-                .catch(error => {
-                    console.error('Upload Error:', error);
-                    status_div.innerText = "Upload Failed: " + error.message;
-                });
-            }
+                if(!token) { alert("Login first"); return; }
 
-            // --- DELETE LOGIC (UPDATED) ---
-            function deleteObject(key) {
-                let status_div = document.getElementById("status_message");
-                
-                // 1. Update status to show we are working
-                status_div.innerText = "Processing delete for " + key + "...";
-
-                const body = { "key": key };
-                fetch(DELETE_URL, {
-                    method: 'DELETE', 
-                    body: JSON.stringify(body),
+                fetch(LIST_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ "email": email, "token": token }),
                     headers: { 'Content-Type': 'application/json' }
                 })
-                .then(response => {
-                    // 2. We now expect JSON back from the orchestrator
-                    return response.json(); 
-                })
-                .then(jsonResponse => {
-                    console.log('Delete successful', jsonResponse);
+                .then(res => res.json())
+                .then(data => {
+                    // Check if server returned an error object instead of a list
+                    if (data.error) {
+                        alert("Server Error: " + data.error);
+                        return;
+                    }
                     
-                    // 3. Display the detailed report from the Orchestrator
-                    status_div.innerText = JSON.stringify(jsonResponse, null, 4);
-                    
-                    // 4. Refresh the table
-                    fetchListOfObjects();
+                    // Safety check: Is it actually a list?
+                    if (!Array.isArray(data)) {
+                        console.error("Expected array but got:", data);
+                        alert("Unexpected response. Check console.");
+                        return;
+                    }
+
+                    renderTable(data);
                 })
-                .catch(error => {
-                    console.error('Error deleting:', error.message);
-                    status_div.innerText = "Delete Failed: " + error.message;
+                .catch(err => {
+                    console.error(err);
+                    alert("Network Error or Invalid JSON");
                 });
             }
 
-            // --- LIST & THUMBNAIL LOGIC ---
-            function fetchListOfObjects() {
-                fetch(LIST_URL)
-                        .then((response) => {
-                            if (!response.ok) throw new Error(`HTTP error, status = ${response.status}`);
-                            return response.text();
-                        })
-                        .then((text) => renderListOfObjects(text))
-                        .catch((error) => console.log(`Error: ${error.message}`));
-            }
+            function renderTable(data) {
+                let tbody = document.querySelector("#objectsTable tbody");
+                tbody.innerHTML = ""; 
 
-            function renderListOfObjects(listOfObjects) {
-                let objectsTable = document.getElementById("objectsTable");
-                while (objectsTable.firstChild) {
-                    objectsTable.removeChild(objectsTable.lastChild);
-                }
-                let objectsArray = JSON.parse(listOfObjects);
-
-                for (let i = 0; i < objectsArray.length; i++) {
+                data.forEach(item => {
                     let row = document.createElement("tr");
 
-                    // Thumbnail Column
+                    // 1. Thumbnail
                     let thumbCell = document.createElement("td");
                     let thumbImg = document.createElement("img");
-                    thumbImg.style.width = "50px"; 
-                    thumbImg.style.height = "auto";
-                    thumbImg.alt = "Loading...";
-                    fetchThumbnail(objectsArray[i].key, thumbImg);
+                    thumbImg.style.width = "50px";
+                    fetchThumbnail(item.key, thumbImg);
                     thumbCell.appendChild(thumbImg);
                     row.appendChild(thumbCell);
 
-                    // Key Column
-                    let keyCell = document.createElement("td");
-                    keyCell.innerText = objectsArray[i].key;
-                    row.appendChild(keyCell);
+                    // 2. Description
+                    let descCell = document.createElement("td");
+                    descCell.innerText = item.description || "";
+                    row.appendChild(descCell);
 
-                    // Download Column
-                    let downloadCell = document.createElement("td");
-                    let downloadButton = document.createElement("button");
-                    downloadButton.addEventListener("click", function () {
-                        fetchObject(objectsArray[i].key)
-                    });
-                    downloadButton.innerHTML = "Download";
-                    downloadCell.appendChild(downloadButton);
-                    row.appendChild(downloadCell);
+                    // 3. Uploaded By
+                    let emailCell = document.createElement("td");
+                    emailCell.innerText = item.email || "Unknown";
+                    row.appendChild(emailCell);
 
-                    // Delete Column
-                    let deleteCell = document.createElement("td");
-                    let deleteButton = document.createElement("button");
-                    deleteButton.addEventListener("click", function () {
-                        deleteObject(objectsArray[i].key);
-                    });
-                    deleteButton.innerHTML = "Delete";
-                    deleteCell.appendChild(deleteButton);
-                    row.appendChild(deleteCell);
+                    // 4. Action
+                    let actionCell = document.createElement("td");
+                    
+                    let dlBtn = document.createElement("button");
+                    dlBtn.innerText = "Download";
+                    dlBtn.onclick = () => fetchObject(item.key);
+                    
+                    let delBtn = document.createElement("button");
+                    delBtn.innerText = "Delete";
+                    delBtn.onclick = () => deleteObject(item.key);
 
-                    objectsTable.appendChild(row);
-                }
+                    actionCell.appendChild(dlBtn);
+                    actionCell.appendChild(delBtn);
+                    row.appendChild(actionCell);
+
+                    tbody.appendChild(row);
+                });
             }
 
+            // --- HELPERS ---
             function fetchThumbnail(key, imgElement) {
                 fetch(THUMBNAIL_URL, {
                     method: 'POST',
                     body: JSON.stringify({ "key": key }),
                     headers: { 'Content-Type': 'application/json' }
                 })
-                .then(response => {
-                    if (!response.ok) throw new Error("No thumbnail");
-                    return response.blob();
-                })
-                .then(blob => {
-                    const objectURL = URL.createObjectURL(blob);
-                    imgElement.src = objectURL;
-                })
-                .catch(err => {
-                    // console.log("Thumbnail error for " + key, err);
-                    imgElement.alt = "No Img"; 
-                });
+                .then(res => res.ok ? res.blob() : Promise.reject())
+                .then(blob => imgElement.src = URL.createObjectURL(blob))
+                .catch(() => imgElement.alt = "No Thumb");
             } 
 
-            // --- DOWNLOAD LOGIC ---
+            // --- 5. PREVIEW / DOWNLOAD LOGIC ---
             function fetchObject(key) {
-                const body = { "key": key };
-                fetch(DOWNLOAD_URL, {
-                            method: 'PUT',
-                            body: JSON.stringify(body)
-                        })
-                        .then(response => response.blob())
-                        .then((myBlob) => {
-                            const objectURL = URL.createObjectURL(myBlob);
-                            document.getElementById("download_image").src = objectURL;
-                        });
+                let email = document.getElementById("email_input").value; // <--- GET EMAIL
+                let token = document.getElementById("token_input").value;
+                
+                if(!token || !email) { 
+                    alert("Please Login (and ensure Email is filled) to preview."); 
+                    return; 
+                }
+
+                // Show loading state
+                const img = document.getElementById("download_image");
+                img.style.display = "none";
+                document.getElementById("status_message").innerText = "Loading preview...";
+
+                fetch(DOWNLOAD_URL, { 
+                    method: 'PUT', 
+                    body: JSON.stringify({ 
+                        "key": key, 
+                        "token": token,
+                        "email": email // <--- ADD EMAIL HERE
+                    }),
+                    headers: { 'Content-Type': 'application/json' }
+                })
+                .then(res => {
+                    if (res.status === 401) throw new Error("Unauthorized: Invalid Token");
+                    if (res.status === 404) throw new Error("File not found");
+                    if (!res.ok) throw new Error("Server Error");
+                    return res.blob();
+                })
+                .then(blob => {
+                    img.src = URL.createObjectURL(blob);
+                    img.style.display = "block";
+                    document.getElementById("status_message").innerText = "Preview loaded.";
+                })
+                .catch(err => {
+                    alert("Preview Failed: " + err.message);
+                    document.getElementById("status_message").innerText = "";
+                });
+            }           
+
+            // --- 6. DELETE LOGIC (Updated for Token) ---
+            function deleteObject(key) {
+                let email = document.getElementById("email_input").value;
+                let token = document.getElementById("token_input").value;
+
+                if(!token || !email) { 
+                    alert("Please Login to delete files."); 
+                    return; 
+                }
+
+                if(!confirm("Are you sure you want to delete " + key + "?")) return;
+
+                document.getElementById("status_message").innerText = "Deleting " + key + "...";
+
+                fetch(DELETE_ORCHESTRATOR_URL, {
+                    method: 'DELETE', 
+                    body: JSON.stringify({ 
+                        "key": key,
+                        "email": email, 
+                        "token": token 
+                    }),
+                    headers: { 'Content-Type': 'application/json' }
+                })
+                .then(res => {
+                    if (res.status === 401) throw new Error("Unauthorized");
+                    return res.json();
+                })
+                .then(json => {
+                    document.getElementById("status_message").innerText = JSON.stringify(json, null, 4);
+                    fetchListOfObjects(); // Refresh table
+                })
+                .catch(err => {
+                    alert("Delete failed: " + err.message);
+                    document.getElementById("status_message").innerText = "";
+                });
             }
 
-            // --- UTILS ---
             if (!Uint8Array.prototype.toBase64) {
                 Uint8Array.prototype.toBase64 = function() {
                     let binary = '';
                     let len = this.byteLength;
-                    for (let i = 0; i < len; i++) {
-                        binary += String.fromCharCode(this[i]);
-                    }
+                    for (let i = 0; i < len; i++) { binary += String.fromCharCode(this[i]); }
                     return window.btoa(binary);
                 }
             }

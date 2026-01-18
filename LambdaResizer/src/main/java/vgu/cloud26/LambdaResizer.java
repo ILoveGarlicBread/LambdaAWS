@@ -27,8 +27,7 @@ public class LambdaResizer
     implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
 
   // Configuration
-  private static final String RESIZED_BUCKET_NAME =
-      "resizebucket-lam1303"; // Update this to your actual resize
+  private static final String RESIZED_BUCKET_NAME = "resizebucket-lam1303"; // Update this to your actual resize
   // bucket name
   private static final float MAX_DIMENSION = 100;
   private final String REGEX = ".*\\.([^\\.]*)";
@@ -41,11 +40,11 @@ public class LambdaResizer
   public APIGatewayProxyResponseEvent handleRequest(
       APIGatewayProxyRequestEvent event, Context context) {
     if (event.getBody() != null && event.getBody().contains("warmer")) {
-    context.getLogger().log("Warming event received. Exiting.");
-    return new APIGatewayProxyResponseEvent()
-            .withStatusCode(200)
-            .withBody("Warmed");
-}
+      context.getLogger().log("Warming event received. Exiting.");
+      return new APIGatewayProxyResponseEvent()
+          .withStatusCode(200)
+          .withBody("Warmed");
+    }
     LambdaLogger logger = context.getLogger();
     logger.log("Resize Worker Started.");
 
@@ -117,8 +116,7 @@ public class LambdaResizer
       metadata.put("Content-Type", PNG_MIME);
     }
 
-    PutObjectRequest putRequest =
-        PutObjectRequest.builder().bucket(bucket).key(key).metadata(metadata).build();
+    PutObjectRequest putRequest = PutObjectRequest.builder().bucket(bucket).key(key).metadata(metadata).build();
 
     logger.log("Writing to: " + bucket + "/" + key);
     s3Client.putObject(putRequest, RequestBody.fromBytes(data));

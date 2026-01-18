@@ -6,16 +6,17 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
 import org.json.JSONObject;
-
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.time.Duration;
 
 public class LambdaTokenVerifier implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
-
-  // MUST match the key in your Generator
-  private static final String SECRET_KEY = "vgu-cloud-secret-2026";
 
   @Override
   public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent event, Context context) {
@@ -28,8 +29,13 @@ public class LambdaTokenVerifier implements RequestHandler<APIGatewayProxyReques
           .withBody("Warmed");
     }
     LambdaLogger logger = context.getLogger();
+    // System Manager parameter store
+
+    // get the value of a parameter (e.g., "keytokenhash") from system manager
+    // parameter store
 
     try {
+
       JSONObject body = new JSONObject(event.getBody());
 
       if (!body.has("email") || !body.has("token")) {
@@ -38,9 +44,13 @@ public class LambdaTokenVerifier implements RequestHandler<APIGatewayProxyReques
 
       String email = body.getString("email");
       String token = body.getString("token");
+      String key = getKey(logger);
+      if (key == null) {
+        return createResponse(500, "Error accesing key");
+      }
 
       // VERIFY LOGIC
-      if (isValidToken(email, token)) {
+      if (isValidToken(email, token, key, logger)) {
         logger.log("Token Verified for: " + email);
         return createResponse(200, "{\"valid\": true}");
       } else {
@@ -54,16 +64,20 @@ public class LambdaTokenVerifier implements RequestHandler<APIGatewayProxyReques
     }
   }
 
-  private boolean isValidToken(String email, String token) {
+  private boolean isValidToken(String email, String token, String key, LambdaLogger logger) {
     try {
       // Re-create the signature using the email and YOUR secret
       Mac mac = Mac.getInstance("HmacSHA256");
-      SecretKeySpec secretKeySpec = new SecretKeySpec(SECRET_KEY.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+      SecretKeySpec secretKeySpec = new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
       mac.init(secretKeySpec);
       byte[] hmacBytes = mac.doFinal(email.getBytes(StandardCharsets.UTF_8));
       String expectedToken = Base64.getEncoder().encodeToString(hmacBytes);
-
-      // Compare
+      logger.log("--- TOKEN DEBUG ---");
+      logger.log("Email Used:      [" + email + "]");
+      logger.log("Received Token:  [" + token + "]");
+      logger.log("Calculated Token:[" + expectedToken + "]");
+      logger.log("Match Result:    " + expectedToken.equals(token));
+      // -----------------------
       return expectedToken.equals(token);
     } catch (Exception e) {
       return false;
@@ -76,4 +90,36 @@ public class LambdaTokenVerifier implements RequestHandler<APIGatewayProxyReques
         .withBody(body)
         .withHeaders(java.util.Collections.singletonMap("Content-Type", "application/json"));
   }
+
+  public static String getKey(LambdaLogger logger) {
+    try {
+
+      HttpClient client = HttpClient.newBuilder()
+          .version(HttpClient.Version.HTTP_1_1) // Use HTTP/1.1 (default might be HTTP/2)
+          .followRedirects(HttpClient.Redirect.NORMAL)
+          .connectTimeout(Duration.ofSeconds(10))
+          .build();
+      // 2. Create an HttpRequest instance
+      HttpRequest requestParameter;
+      requestParameter = HttpRequest.newBuilder()
+          .uri(URI.create(
+              "http://localhost:2773/systemsmanager/parameters/get/?name=cloud26key"))
+          .header("Accept", "application/json") // Set request headers
+          .GET() // Specify GET method (default, but explicit is clear)
+          .build();
+
+      // 3. Send the request synchronously and get the response
+      HttpResponse<String> responseParameter = client.send(requestParameter,
+          HttpResponse.BodyHandlers.ofString());
+
+      // 4. Process the response
+      String key = responseParameter.body();
+      return key;
+    } catch (Exception e) {
+      logger.log("Error accessing key: " + e.getMessage());
+      return null;
+
+    }
+  }
+
 }

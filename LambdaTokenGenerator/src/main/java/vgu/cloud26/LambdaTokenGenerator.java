@@ -12,11 +12,13 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 
 public class LambdaTokenGenerator implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
-
-    // HARDCODED SECRET (For demo only - normally use Environment Variables)
-    private static final String SECRET_KEY = "key";
 
     @Override
     public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent event, Context context) {
@@ -33,6 +35,11 @@ public class LambdaTokenGenerator implements RequestHandler<APIGatewayProxyReque
         logger.log("Starting Token Processing");
 
         try {
+            // System Manager parameter store
+
+            // get the value of a parameter (e.g., "keytokenhash") from system manager
+            // parameter store
+
             String requestBody = event.getBody();
             JSONObject bodyJSON = new JSONObject(requestBody);
 
@@ -41,9 +48,13 @@ public class LambdaTokenGenerator implements RequestHandler<APIGatewayProxyReque
             }
 
             String email = bodyJSON.getString("email");
+            String key = getKey(logger);
+            if (key == null) {
+                return createResponse(500, "Error accesing key");
+            }
 
             // Generate Token
-            String token = generateSecureToken(email, SECRET_KEY, logger);
+            String token = generateSecureToken(email, key, logger);
 
             if (token == null) {
                 return createResponse(500, "{\"error\": \"Token generation failed, token is null\"}");
@@ -75,17 +86,45 @@ public class LambdaTokenGenerator implements RequestHandler<APIGatewayProxyReque
             Mac mac = Mac.getInstance("HmacSHA256");
             SecretKeySpec secretKeySpec = new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
             mac.init(secretKeySpec);
-
             byte[] hmacBytes = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
             String base64 = Base64.getEncoder().encodeToString(hmacBytes);
 
-            // logger.log("Secure Token Generated for: " + data); // Log email, but maybe
-            // not the token itself in prod
             return base64;
 
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             logger.log("Crypto Error: " + e.getMessage());
             return null;
+        }
+    }
+
+    public static String getKey(LambdaLogger logger) {
+        try {
+
+            HttpClient client = HttpClient.newBuilder()
+                    .version(HttpClient.Version.HTTP_1_1) // Use HTTP/1.1 (default might be HTTP/2)
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .connectTimeout(Duration.ofSeconds(10))
+                    .build();
+            // 2. Create an HttpRequest instance
+            HttpRequest requestParameter;
+            requestParameter = HttpRequest.newBuilder()
+                    .uri(URI.create(
+                            "http://localhost:2773/systemsmanager/parameters/get/?name=cloud26key"))
+                    .header("Accept", "application/json") // Set request headers
+                    .GET() // Specify GET method (default, but explicit is clear)
+                    .build();
+
+            // 3. Send the request synchronously and get the response
+            HttpResponse<String> responseParameter = client.send(requestParameter,
+                    HttpResponse.BodyHandlers.ofString());
+
+            // 4. Process the response
+            String key = responseParameter.body();
+            return key;
+        } catch (Exception e) {
+            logger.log("Error accessing key: " + e.getMessage());
+            return null;
+
         }
     }
 }
